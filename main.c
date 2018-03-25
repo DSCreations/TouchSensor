@@ -314,7 +314,7 @@ void MPR121_Handler(void){
 }
 
 
-//TODO(Rebecca): Unsure this is needed as well :?
+//TODO(Rebecca): NEED TO WRITE HANDLER FOR TOUCH RELEASE!!!!
 void KeyPress_Handler(void) {
     // Clear the timer interrupt.
     TimerIntClear(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
