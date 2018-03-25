@@ -348,5 +348,8 @@ int main(void) {
    // Start the MPR121 and set thresholds
    MPR121_Init();
 
+   // Ready
+   GPIOPinWrite(GPIO_PORTF_BASE, LED_PINS, BLUE);
+
    while(1){}
 }
