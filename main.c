@@ -28,8 +28,6 @@
 #define TOUCH_THRESH 0x0F     // touch threshold
 #define RELEASE_THRESH 0x09     // release threshold
 
-#define TIMER_WAIT 15
-
 #define OFF 0
 #define RED 2
 #define BLUE 4
@@ -56,8 +54,6 @@ void KeyPress_Handler(void);
 
 void setup(void) {
     // Initial settings
-    FPUEnable();                                            // Enable floating point unit
-    FPULazyStackingEnable();                                // Enable lazy stacking of FPU
     IntMasterEnable();                                      // Enable processor interrupts
 
     // Enable device clocking
@@ -73,16 +69,16 @@ void setup(void) {
 }
 
 void I2C_Init(void) {
-    //enable I2C module 0
+    // Enable I2C module 0
     SysCtlPeripheralEnable(SYSCTL_PERIPH_I2C0);
 
-    //reset module
+    // Reset module
     SysCtlPeripheralReset(SYSCTL_PERIPH_I2C0);
 
-    //enable GPIO peripheral that contains I2C 0
+    // Enable GPIO peripheral that contains I2C 0
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOB);
 
-    //Configure the pin muxing for I2C0 functions on port B2 and B3.
+    // Configure the pin muxing for I2C0 functions on port B2 and B3.
     GPIOPinConfigure(GPIO_PB2_I2C0SCL);
     GPIOPinConfigure(GPIO_PB3_I2C0SDA);
 
@@ -96,104 +92,103 @@ void I2C_Init(void) {
     // be set to 400kbps.
     I2CMasterInitExpClk(I2C0_BASE, SysCtlClockGet(), false);
 
-    //clear I2C FIFOs
+    // Clear I2C FIFOs
     HWREG(I2C0_BASE + I2C_O_FIFOCTL) = 80008000;
 }
 
-//sends an I2C command to the specified slave
+// Sends an I2C command to the specified slave
 void I2CSend(uint8_t slave_addr, uint8_t num_of_args, ...)
 {
     // Tell the master module what address it will place on the bus when
     // communicating with the slave.
     I2CMasterSlaveAddrSet(I2C0_BASE, slave_addr, false);
 
-    //stores list of variable number of arguments
+    // Stores list of variable number of arguments
     va_list vargs;
 
-    //specifies the va_list to "open" and the last fixed argument
-    //so vargs knows where to start looking
+    // Specifies the va_list to "open" and the last fixed argument
+    // so vargs knows where to start looking
     va_start(vargs, num_of_args);
 
-    //put data to be sent into FIFO
+    // Put data to be sent into FIFO
     I2CMasterDataPut(I2C0_BASE, va_arg(vargs, uint32_t));
 
-    //if there is only one argument, we only need to use the
-    //single send I2C function
+    // If there is only one argument, we only need to use the
+    // Single send I2C function
     if(num_of_args == 1)
     {
-        //Initiate send of data from the MCU
+        // Initiate send of data from the MCU
         I2CMasterControl(I2C0_BASE, I2C_MASTER_CMD_SINGLE_SEND);
 
         // Wait until MCU is done transferring.
         while(I2CMasterBusy(I2C0_BASE));
 
-        //"close" variable argument list
+        // "close" variable argument list
         va_end(vargs);
     }
 
-    //otherwise, we start transmission of multiple bytes on the
-    //I2C bus
+    // Otherwise, we start transmission of multiple bytes on the
+    // I2C bus
     else
     {
-        //Initiate send of data from the MCU
+        // Initiate send of data from the MCU
         I2CMasterControl(I2C0_BASE, I2C_MASTER_CMD_BURST_SEND_START);
 
         // Wait until MCU is done transferring.
         while(I2CMasterBusy(I2C0_BASE));
 
-        //send num_of_args-2 pieces of data, using the
-        //BURST_SEND_CONT command of the I2C module
+        // Send num_of_args-2 pieces of data, using the
+        // BURST_SEND_CONT command of the I2C module
         uint8_t i;
         for(i = 1; i < (num_of_args - 1); i++)
         {
-            //put next piece of data into I2C FIFO
+            // Put next piece of data into I2C FIFO
             I2CMasterDataPut(I2C0_BASE, va_arg(vargs, uint32_t));
-            //send next data that was just placed into FIFO
+            // Send next data that was just placed into FIFO
             I2CMasterControl(I2C0_BASE, I2C_MASTER_CMD_BURST_SEND_CONT);
-
             // Wait until MCU is done transferring.
             while(I2CMasterBusy(I2C0_BASE));
         }
 
-        //put last piece of data into I2C FIFO
+        // Put last piece of data into I2C FIFO
         I2CMasterDataPut(I2C0_BASE, va_arg(vargs, uint32_t));
-        //send next data that was just placed into FIFO
+        // Send next data that was just placed into FIFO
         I2CMasterControl(I2C0_BASE, I2C_MASTER_CMD_BURST_SEND_FINISH);
         // Wait until MCU is done transferring.
         while(I2CMasterBusy(I2C0_BASE));
 
-        //"close" variable args list
+        // "close" variable args list
         va_end(vargs);
     }
 }
 
-//read specified register on slave device
+// Read specified register on slave device
 uint32_t I2CReceive(uint32_t slave_addr, uint8_t reg)
 {
-    //specify that we are writing (a register address) to the
-    //slave device
+    // Specify that we are writing (a register address) to the
+    // slave device
     I2CMasterSlaveAddrSet(I2C0_BASE, slave_addr, false);
 
-    //specify register to be read
+    // Specify register to be read
     I2CMasterDataPut(I2C0_BASE, reg);
 
-    //send control byte and register address byte to slave device
+    // Send control byte and register address byte to slave device
     I2CMasterControl(I2C0_BASE, I2C_MASTER_CMD_BURST_SEND_START);
 
-    //wait for MCU to finish transaction
+    // Wait for MCU to finish transaction
     while(I2CMasterBusy(I2C0_BASE));
 
-    //specify that we are going to read from slave device
+    // Specify that we are going to read from slave device
     I2CMasterSlaveAddrSet(I2C0_BASE, slave_addr, true);
 
-    //send control byte and read from the register we
-    //specified
+    // Send control byte and read from the register we
+    // specified
     I2CMasterControl(I2C0_BASE, I2C_MASTER_CMD_SINGLE_RECEIVE);
 
-    //wait for MCU to finish transaction
+    // Wait for MCU to finish transaction
     while(I2CMasterBusy(I2C0_BASE));
 
-    //return data pulled from the specified register
+    // Return data pulled from the specified register
     return I2CMasterDataGet(I2C0_BASE);
 }
 
@@ -241,19 +236,14 @@ void MPR121_Init(void) {
 
 void Timer_Init(void) {
     SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER0);           // Timer for key debouncing
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER1);           // Timer for keypad timeout
 
     // Set up the timers used to lock/unlock the keypad
     TimerConfigure(TIMER0_BASE, TIMER_CFG_ONE_SHOT);
-    TimerConfigure(TIMER1_BASE, TIMER_CFG_ONE_SHOT);
-    TimerLoadSet(TIMER1_BASE, TIMER_A, SysCtlClockGet()* TIMER_WAIT);
 
     // Setup the interrupts for the timer timeouts
     IntEnable(INT_TIMER0A);
-    IntEnable(INT_TIMER1A);
 
     TimerIntEnable(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
-    TimerIntEnable(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
 }
 
 void IRQ_Init(void) {
@@ -318,10 +308,6 @@ void MPR121_Handler(void){
             TimerLoadSet(TIMER0_BASE, TIMER_A, SysCtlClockGet() * 2);
             TimerEnable(TIMER0_BASE, TIMER_A);
         }*/
-        if (keysUnlocked) {
-            TimerLoadSet(TIMER1_BASE, TIMER_A, SysCtlClockGet() * TIMER_WAIT);
-            TimerEnable(TIMER1_BASE, TIMER_A);
-       }
     }
     // If one electrode was released
     else if (touchNumber == 0) {}
@@ -332,6 +318,8 @@ void MPR121_Handler(void){
     GPIOIntClear(GPIO_PORTC_BASE, IRQ_PIN);
 }
 
+
+//TODO(Rebecca): Unsure this is needed as well :?
 void KeyPress_Handler(void) {
     // Clear the timer interrupt.
     TimerIntClear(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
@@ -341,13 +329,7 @@ void KeyPress_Handler(void) {
 
     // The timer is up! Toggle keysUnlocked
     if (touchedMap) {
-        if (keysUnlocked) {
-            toggleKeylock();
-        } else {
-            toggleKeylock();
-            TimerLoadSet(TIMER1_BASE, TIMER_A, SysCtlClockGet() * TIMER_WAIT);
-            TimerEnable(TIMER1_BASE, TIMER_A);
-        }
+        toggleKeylock();
     }
 }
 
@@ -365,9 +347,6 @@ int main(void) {
 
    // Start the MPR121 and set thresholds
    MPR121_Init();
-
-   // Enable the timeout timer
-   TimerEnable(TIMER0_BASE, TIMER_A);
 
    while(1){}
 }
