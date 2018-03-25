@@ -39,7 +39,9 @@
 #define IRQ_PIN GPIO_PIN_7
 
 // Global Variables!
+//TODO(Rebecca): Once functionality is working, remove pressedKey references
 char pressedKey;            // Keypad: store which key was last pressed
+volatile unsigned long ledState = 0;
 _Bool keysUnlocked = true;   // For locking the keypad
 uint16_t touchedMap;        // Map of key status
 
@@ -259,16 +261,9 @@ void IRQ_Init(void) {
 // Toggle Key Presses
 void toggleKeylock(void)
 {
-    uint8_t led = OFF;
-    if (keysUnlocked) {
-        keysUnlocked = false;
-        led = RED;
-    }
-    else {
-        keysUnlocked = true;
-        led = GREEN;
-    }
-    GPIOPinWrite(GPIO_PORTF_BASE, LED_PINS, led);
+    //keysUnlocked ^= keysUnlocked;
+    ledState ^= RED;
+    GPIOPinWrite(GPIO_PORTF_BASE, LED_PINS, ledState);
 
 }
 
@@ -287,8 +282,8 @@ void MPR121_Handler(void){
     // If one electrode was pressed, register it
     if (touchNumber == 1) {
         if (touchedMap & (1<<K1)){
-            pressedKey = '1'; //TODO(Rebecca): Tech never used since not using UART
-            toggleKeylock();
+            pressedKey = '1';
+            //toggleKeylock();
         } /*else if (touchedMap & (1<<K2)){
             pressedKey = '2';
         } else if (touchedMap & (1<<K3)){
@@ -305,9 +300,9 @@ void MPR121_Handler(void){
         else if (touchedMap & (1<<KS)) { pressedKey = '*'; }
         else if (touchedMap & (1<<KP)) {
             pressedKey = '#';
-            TimerLoadSet(TIMER0_BASE, TIMER_A, SysCtlClockGet() * 2);
-            TimerEnable(TIMER0_BASE, TIMER_A);
         }*/
+        TimerLoadSet(TIMER0_BASE, TIMER_A, SysCtlClockGet() * 2);
+        TimerEnable(TIMER0_BASE, TIMER_A);
     }
     // If one electrode was released
     else if (touchNumber == 0) {}
@@ -327,8 +322,13 @@ void KeyPress_Handler(void) {
     // Disable the timer
     TimerDisable(TIMER0_BASE, TIMER_A);
 
-    // The timer is up! Toggle keysUnlocked
-    if (touchedMap) {
+   // Get the status of the electrodes
+   uint32_t touchedLSB = I2CReceive(0x5A,0x00);
+   uint32_t touchedMSB = I2CReceive(0x5A,0x01);
+   uint16_t currentTouchedMap = ((touchedMSB << 8) | touchedLSB);
+
+   _Bool isStillPressed = touchedMap == currentTouchedMap;
+    if (isStillPressed) {
         toggleKeylock();
     }
 }
