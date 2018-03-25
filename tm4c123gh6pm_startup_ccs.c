@@ -57,7 +57,6 @@ extern uint32_t __STACK_TOP;
 // To be added by user
 extern void MPR121_Handler(void);
 extern void KeyPress_Handler(void);
-extern void KeyIdle_Handler(void);
 
 //*****************************************************************************
 //
@@ -107,7 +106,7 @@ void (* const g_pfnVectors[])(void) =
     IntDefaultHandler,                      // Watchdog timer
     KeyPress_Handler,                      // Timer 0 subtimer A
     IntDefaultHandler,                      // Timer 0 subtimer B
-    KeyIdle_Handler,                      // Timer 1 subtimer A
+    IntDefaultHandler,                      // Timer 1 subtimer A
     IntDefaultHandler,                      // Timer 1 subtimer B
     IntDefaultHandler,                      // Timer 2 subtimer A
     IntDefaultHandler,                      // Timer 2 subtimer B

@@ -53,7 +53,6 @@ void IRQ_Init(void);
 void toggleKeylock(void);
 void MPR121_Handler(void);
 void KeyPress_Handler(void);
-void KeyIdle_Handler(void);
 
 void setup(void) {
     // Initial settings
@@ -279,8 +278,6 @@ void toggleKeylock(void)
         keysUnlocked = true;
         led = GREEN;
     }
-    //TODO(Rebecca): I don't think I need this first line...
-    //GPIOPinWrite(GPIO_PORTF_BASE, LED_PINS, 0);
     GPIOPinWrite(GPIO_PORTF_BASE, LED_PINS, led);
 
 }
@@ -354,17 +351,6 @@ void KeyPress_Handler(void) {
     }
 }
 
-void KeyIdle_Handler(void) {
-    // Clear the timer interrupt.
-    TimerIntClear(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
-
-    // Disable the timer
-    TimerDisable(TIMER1_BASE, TIMER_A);
-
-    // The timer is up! Lock the keypad
-    if (keysUnlocked) { toggleKeylock(); }
-}
-
 int main(void) {
     setup();
 
@@ -382,7 +368,6 @@ int main(void) {
 
    // Enable the timeout timer
    TimerEnable(TIMER0_BASE, TIMER_A);
-   TimerEnable(TIMER1_BASE, TIMER_A);
 
    while(1){}
 }
