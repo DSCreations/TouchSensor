@@ -32,8 +32,10 @@
 #define RED 2
 #define BLUE 4
 #define GREEN 8
+#define LED_ON 32
 
 #define LED_PINS GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3
+#define LED_OFFSET_PIN GPIO_PIN_5 // Need to come up with a better name
 #define SCL_PIN GPIO_PIN_2
 #define SDA_PIN GPIO_PIN_3
 #define IRQ_PIN GPIO_PIN_7
@@ -42,6 +44,7 @@
 //TODO(Rebecca): Once functionality is working, remove pressedKey references
 char pressedKey;            // Keypad: store which key was last pressed
 volatile unsigned long ledState = 0;
+volatile unsigned long ledOffsetState = 0;
 _Bool keysUnlocked = true;   // For locking the keypad
 uint16_t touchedMap;        // Map of key status
 
@@ -62,12 +65,14 @@ void setup(void) {
     SysCtlClockSet(SYSCTL_SYSDIV_1 | SYSCTL_USE_OSC | SYSCTL_OSC_MAIN | SYSCTL_XTAL_16MHZ);
 
     // Enable system peripherals
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOA);    // Personal LEDs
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOB);            // Pins: I2C0SCL, I2C0SDA
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOC);            // Pins: Keypad interrupt (INT2)
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);
 
     // Setting LED pins to Output
     GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, LED_PINS);
+    GPIOPinTypeGPIOOutput(GPIO_PORTA_BASE, LED_OFFSET_PIN);
 }
 
 void I2C_Init(void) {
@@ -263,7 +268,9 @@ void toggleKeylock(void)
 {
     //keysUnlocked ^= keysUnlocked;
     ledState ^= RED;
+    ledOffsetState ^= LED_ON;
     GPIOPinWrite(GPIO_PORTF_BASE, LED_PINS, ledState);
+    GPIOPinWrite(GPIO_PORTA_BASE, LED_OFFSET_PIN, ledOffsetState);
 
 }
 
