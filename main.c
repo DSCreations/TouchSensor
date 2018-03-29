@@ -56,8 +56,8 @@ struct LED {
 char pressedKey;            // Keypad: store which key was last pressed
 _Bool allLedsOn = false;   // For checking LEDs finish flooding
 uint16_t touchedMap;        // Map of key status
-struct LED *leds; // Statically stores the mapping of each port to each external LED
-uint8_t *ledsOn; // Stores which LEDs are on (1 for on, 0 for off)
+struct LED leds[NUM_OF_LEDS]; // Statically stores the mapping of each port to each external LED
+uint8_t ledsOn[NUM_OF_LEDS]; // Stores which LEDs are on (1 for on, 0 for off)
 
 void setup(void);
 void I2C_Init(void);
@@ -79,14 +79,12 @@ struct LED initializeLED(int ledState, int GPIOPin, int GPIOPort) {
 }
 
 void initLeds(void) {
-     leds = (struct LED*) calloc(NUM_OF_LEDS, sizeof(struct LED));
      leds[0] = initializeLED(32, GPIO_PIN_5, GPIO_PORTA_BASE);
      leds[1] = initializeLED(64, GPIO_PIN_6, GPIO_PORTA_BASE);
      leds[2] = initializeLED(128, GPIO_PIN_7, GPIO_PORTA_BASE);
 
      // Setup of which LEDs are 'on' (so don't need to call GPIOPinRead)
      // TODO(Rebecca): Is it really so bad if we call GPIOPinRead?
-     ledsOn = (uint8_t*) calloc(NUM_OF_LEDS, sizeof(uint8_t));
      uint8_t i;
      for(i = 0; i < NUM_OF_LEDS; i++) {
          ledsOn[i] = false;
@@ -355,6 +353,7 @@ void MPR121_Handler(void){
         uint8_t i = 0;
         for(i = 0; i < NUM_OF_LEDS; i++) {
             setLed(i, false);
+            ledsOn[i] = false;
         }
         // Clear and disable any timers
         TimerIntClear(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
@@ -375,13 +374,20 @@ void toggleKeylock(void)
 {
     // For debugging purposes
     uint8_t ledState = GPIOPinRead(GPIO_PORTF_BASE, LED_PINS);
-    ledState ^= RED;
+    _Bool isLedNotRed = (ledState != RED);
+    if (isLedNotRed) {
+        ledState = RED;
+    } else {
+        ledState = OFF;
+    }
+
     GPIOPinWrite(GPIO_PORTF_BASE, LED_PINS, ledState);
 
     // Turn on all LEDs pressed on touchMap
     uint8_t i;
     for(i = 0; i < NUM_OF_LEDS; i++) {
-        if(touchedMap && (1<<i)) {
+        _Bool isButtonPressed = (touchedMap & (1 << i));
+        if(isButtonPressed) {
             //TODO(Rebecca): What happens if this occurs when flooding other LEDs?
             setLed(i, true);
             ledsOn[i] = true;
@@ -418,9 +424,9 @@ void flood(void) {
      if(!allLedsOn) {
          _Bool areAllLedsOn = true;
 
-         // Make a copy of the ledsOn pointer
-         uint8_t* presentLedsOn = malloc(sizeof(uint8_t));
-         memcpy(presentLedsOn, ledsOn, sizeof(uint8_t));
+         // Make a copy of the ledsOn array
+         uint8_t presentLedsOn [NUM_OF_LEDS];
+         memcpy(&presentLedsOn, &ledsOn, sizeof(presentLedsOn));
 
          uint8_t i;
          for(i = 0; i < NUM_OF_LEDS; i++) {
@@ -443,10 +449,8 @@ void flood(void) {
          if (areAllLedsOn) {
              allLedsOn = true;
          }
-         // Point ledsOn to new data, and deallocate presentLedsOn
-         //TODO(Rebecca): Ask Tyler if this is correct...
-         ledsOn = presentLedsOn;
-         free(presentLedsOn);
+         // Set ledsOn to presentLedsOn
+         memcpy(ledsOn, presentLedsOn, sizeof(ledsOn));
      }
 }
 
