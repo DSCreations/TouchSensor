@@ -14,9 +14,9 @@
 #include "driverlib/pin_map.h"
 
 #define K1 0                // Electrode 0 is the 1 key,
-/*#define K2 4                // Electrode 4 is the 2 key, etc...
-#define K3 3
-#define K4 9
+#define K2 1                // Electrode 1 is the 2 key, etc...
+#define K3 2
+/*#define K4 9
 #define K5 5
 #define K6 2
 #define K7 10
@@ -36,17 +36,27 @@
 
 #define LED_PINS GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3
 #define LED_EXTERNAL_PIN GPIO_PIN_5 // Need to come up with a better name
+#define LED_EXTERNAL_PIN_2 GPIO_PIN_6
+#define LED_EXTERNAL_PIN_3 GPIO_PIN_7
+
 #define SCL_PIN GPIO_PIN_2
 #define SDA_PIN GPIO_PIN_3
 #define IRQ_PIN GPIO_PIN_7
+
+struct LED {
+    unsigned long aLedState;
+    unsigned GPIOPin;
+    unsigned GPIO_Port;
+};
 
 // Global Variables!
 //TODO(Rebecca): Once functionality is working, remove pressedKey references
 char pressedKey;            // Keypad: store which key was last pressed
 volatile unsigned long ledState = 0;
 volatile unsigned long externalLedState = 0;
-_Bool keysUnlocked = true;   // For locking the keypad
+_Bool allLedsOn = false;   // For checking LEDs finish flooding
 uint16_t touchedMap;        // Map of key status
+struct LED *leds;
 
 void setup(void);
 void I2C_Init(void);
@@ -56,6 +66,7 @@ void IRQ_Init(void);
 void toggleKeylock(void);
 void MPR121_Handler(void);
 void KeyPress_Handler(void);
+void KeyPressFlood_Handler(void);
 
 void setup(void) {
     // Initial settings
@@ -66,13 +77,15 @@ void setup(void) {
 
     // Enable system peripherals
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOA);    // Personal LEDs
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOB);            // Pins: I2C0SCL, I2C0SDA
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOC);            // Pins: Keypad interrupt (INT2)
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOB);    // Pins: I2C0SCL, I2C0SDA
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOC);    // Pins: Keypad interrupt (INT2)
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);
 
     // Setting LED pins to Output
     GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, LED_PINS);
     GPIOPinTypeGPIOOutput(GPIO_PORTA_BASE, LED_EXTERNAL_PIN);
+    GPIOPinTypeGPIOOutput(GPIO_PORTA_BASE, LED_EXTERNAL_PIN_2);
+    GPIOPinTypeGPIOOutput(GPIO_PORTA_BASE, LED_EXTERNAL_PIN_3);
 }
 
 void I2C_Init(void) {
@@ -243,14 +256,18 @@ void MPR121_Init(void) {
 
 void Timer_Init(void) {
     SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER0);           // Timer for key debouncing
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER1);
 
     // Set up the timers used to lock/unlock the keypad
     TimerConfigure(TIMER0_BASE, TIMER_CFG_ONE_SHOT);
+    TimerConfigure(TIMER1_BASE, TIMER_CFG_ONE_SHOT);
 
     // Setup the interrupts for the timer timeouts
     IntEnable(INT_TIMER0A);
+    IntEnable(INT_TIMER1A);
 
     TimerIntEnable(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
+    TimerIntEnable(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
 }
 
 void IRQ_Init(void) {
@@ -267,10 +284,14 @@ void IRQ_Init(void) {
 void toggleKeylock(void)
 {
     ledState ^= RED;
-    externalLedState = LED_ON;
     GPIOPinWrite(GPIO_PORTF_BASE, LED_PINS, ledState);
-    GPIOPinWrite(GPIO_PORTA_BASE, LED_EXTERNAL_PIN, externalLedState);
-
+    if(pressedKey == '1') {
+        GPIOPinWrite(GPIO_PORTA_BASE, LED_EXTERNAL_PIN, 32);
+    } else if(pressedKey == '2') {
+        GPIOPinWrite(GPIO_PORTA_BASE, LED_EXTERNAL_PIN_2, 64);
+    } else if(pressedKey == '3') {
+        GPIOPinWrite(GPIO_PORTA_BASE, LED_EXTERNAL_PIN_3, 128);
+    }
 }
 
 void MPR121_Handler(void){
@@ -290,11 +311,11 @@ void MPR121_Handler(void){
         if (touchedMap & (1<<K1)){
             pressedKey = '1';
             //toggleKeylock();
-        } /*else if (touchedMap & (1<<K2)){
+        } else if (touchedMap & (1<<K2)){
             pressedKey = '2';
         } else if (touchedMap & (1<<K3)){
             pressedKey = '3';
-        } else if (touchedMap & (1<<K4)){
+        } /*else if (touchedMap & (1<<K4)){
             pressedKey = '4';
         }
         else if (touchedMap & (1<<K5)) { pressedKey = '5'; }
@@ -313,6 +334,8 @@ void MPR121_Handler(void){
     // If one electrode was released
     else if (touchNumber == 0) {
         GPIOPinWrite(GPIO_PORTA_BASE, LED_EXTERNAL_PIN, 0);
+        GPIOPinWrite(GPIO_PORTA_BASE, LED_EXTERNAL_PIN_2, 0);
+        GPIOPinWrite(GPIO_PORTA_BASE, LED_EXTERNAL_PIN_3, 0);
     }
     // Do nothing if more than one button is pressed
     else {}
@@ -337,10 +360,58 @@ void KeyPress_Handler(void) {
    _Bool isStillPressed = touchedMap == currentTouchedMap;
     if (isStillPressed) {
         toggleKeylock();
+
+        TimerLoadSet(TIMER1_BASE, TIMER_A, SysCtlClockGet() * 2);
+        TimerEnable(TIMER1_BASE, TIMER_A);
     }
 }
 
+// If the same capacitor is being pressed, turn on joint LEDs
+void KeyPressFlood_Handler(void) {
+    // Clear the timer interrupt.
+    TimerIntClear(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
+
+    // Disable the timer
+    TimerDisable(TIMER1_BASE, TIMER_A);
+
+   if(!allLedsOn) {
+       struct LED aLed;
+       switch(pressedKey) {
+       case '1':
+           aLed = leds[1];
+           if(GPIOPinRead(leds[1].GPIO_Port, leds[1].GPIOPin) == 0) {
+               aLed = leds[1];
+               GPIOPinWrite(aLed.GPIO_Port, aLed.GPIOPin, aLed.aLedState);
+
+               TimerLoadSet(TIMER1_BASE, TIMER_A, SysCtlClockGet() * 2);
+               TimerEnable(TIMER1_BASE, TIMER_A);
+
+           } else if(GPIOPinRead(leds[2].GPIO_Port, leds[2].GPIOPin) == 0) {
+               aLed = leds[2];
+               GPIOPinWrite(aLed.GPIO_Port, aLed.GPIOPin, aLed.aLedState);
+               allLedsOn = true;
+           }
+       }
+   }
+
+}
+ void initializeLED(struct LED *led, int ledState, int GPIOPin, int GPIOPort) {
+     led->aLedState = ledState;
+     led->GPIOPin = GPIOPin;
+     led->GPIO_Port = GPIOPort;
+ }
+
 int main(void) {
+    struct LED led1, led2, led3;
+    initializeLED(&led1, 32, GPIO_PIN_5, GPIO_PORTA_BASE);
+    initializeLED(&led2, 64, GPIO_PIN_6, GPIO_PORTA_BASE);
+    initializeLED(&led3, 128, GPIO_PIN_7, GPIO_PORTA_BASE);
+
+    leds = (struct LED*) calloc(3, sizeof(struct LED));
+    leds[0] = led1;
+    leds[1] = led2;
+    leds[2] = led3;
+
     setup();
 
     // Timer Init
