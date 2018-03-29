@@ -13,6 +13,9 @@
 #include "driverlib/gpio.h"
 #include "driverlib/pin_map.h"
 
+#define true 1
+#define false 0
+
 #define K1 0                // Electrode 0 is the 1 key,
 #define K2 1                // Electrode 1 is the 2 key, etc...
 #define K3 2
@@ -27,6 +30,8 @@
 #define KP 0                // # (pound or hash)*/
 #define TOUCH_THRESH 0x0F     // touch threshold
 #define RELEASE_THRESH 0x09     // release threshold
+
+#define NUM_OF_LEDS 3
 
 #define OFF 0
 #define RED 2
@@ -52,11 +57,10 @@ struct LED {
 // Global Variables!
 //TODO(Rebecca): Once functionality is working, remove pressedKey references
 char pressedKey;            // Keypad: store which key was last pressed
-volatile unsigned long ledState = 0;
-volatile unsigned long externalLedState = 0;
 _Bool allLedsOn = false;   // For checking LEDs finish flooding
 uint16_t touchedMap;        // Map of key status
-struct LED *leds;
+struct LED *leds; // Statically stores the mapping of each port to each external LED
+uint8_t *ledsOn; // Stores which LEDs are on (1 for on, 0 for off)
 
 void setup(void);
 void I2C_Init(void);
@@ -67,6 +71,30 @@ void toggleKeylock(void);
 void MPR121_Handler(void);
 void KeyPress_Handler(void);
 void KeyPressFlood_Handler(void);
+
+//TODO(Rebecca): Ask Tyler for correctness.
+struct LED initializeLED(int ledState, int GPIOPin, int GPIOPort) {
+    struct LED led;
+     led.aLedState = ledState;
+     led.GPIOPin = GPIOPin;
+     led.GPIO_Port = GPIOPort;
+
+     return led;
+}
+
+void initLeds(void) {
+     leds = (struct LED*) calloc(NUM_OF_LEDS, sizeof(struct LED));
+     leds[0] = initializeLED(32, GPIO_PIN_5, GPIO_PORTA_BASE);
+     leds[1] = initializeLED(64, GPIO_PIN_6, GPIO_PORTA_BASE);
+     leds[2] = initializeLED(128, GPIO_PIN_7, GPIO_PORTA_BASE);
+
+     // Setup of which LEDs are 'on' (so don't need to check)
+     ledsOn = (uint8_t*) calloc(NUM_OF_LEDS, sizeof(uint8_t));
+     uint8_t i;
+     for(i = 0; i < NUM_OF_LEDS; i++) {
+         ledsOn[i] = false;
+     }
+}
 
 void setup(void) {
     // Initial settings
@@ -83,9 +111,11 @@ void setup(void) {
 
     // Setting LED pins to Output
     GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, LED_PINS);
-    GPIOPinTypeGPIOOutput(GPIO_PORTA_BASE, LED_EXTERNAL_PIN);
-    GPIOPinTypeGPIOOutput(GPIO_PORTA_BASE, LED_EXTERNAL_PIN_2);
-    GPIOPinTypeGPIOOutput(GPIO_PORTA_BASE, LED_EXTERNAL_PIN_3);
+    uint8_t i;
+    for(i = 0; i < NUM_OF_LEDS; i++) {
+        struct LED led = leds[i];
+        GPIOPinTypeGPIOOutput(led.GPIO_Port, led.GPIOPin);
+    }
 }
 
 void I2C_Init(void) {
@@ -280,18 +310,11 @@ void IRQ_Init(void) {
     GPIOIntEnable(GPIO_PORTC_BASE, IRQ_PIN);                     // Enable interrupt
 }
 
-// Toggle Key Presses
-void toggleKeylock(void)
-{
-    ledState ^= RED;
-    GPIOPinWrite(GPIO_PORTF_BASE, LED_PINS, ledState);
-    if(pressedKey == '1') {
-        GPIOPinWrite(GPIO_PORTA_BASE, LED_EXTERNAL_PIN, 32);
-    } else if(pressedKey == '2') {
-        GPIOPinWrite(GPIO_PORTA_BASE, LED_EXTERNAL_PIN_2, 64);
-    } else if(pressedKey == '3') {
-        GPIOPinWrite(GPIO_PORTA_BASE, LED_EXTERNAL_PIN_3, 128);
-    }
+// Turn on/off LED
+void setLed(uint8_t index, _Bool setLedOn) {
+    struct LED aLed = leds[index];
+    uint8_t ledState = setLedOn ? aLed.aLedState: 0;
+    GPIOPinWrite(aLed.GPIO_Port, aLed.GPIOPin, ledState);
 }
 
 void MPR121_Handler(void){
@@ -307,17 +330,13 @@ void MPR121_Handler(void){
     // Check how many electrodes were pressed
     for (j=0; j<12; j++) { if ((touchedMap & (1<<j))) { touchNumber++; } }
     // If one electrode was pressed, register it
+    //TODO(Rebecca): For multiple button presses, this needs to be modified
     if (touchNumber == 1) {
-        if (touchedMap & (1<<K1)){
-            pressedKey = '1';
-            //toggleKeylock();
-        } else if (touchedMap & (1<<K2)){
-            pressedKey = '2';
-        } else if (touchedMap & (1<<K3)){
-            pressedKey = '3';
-        } /*else if (touchedMap & (1<<K4)){
-            pressedKey = '4';
-        }
+        //TODO(Rebecca): Change to show mostRecentKeyPress
+        if (touchedMap & (1<<K1)){ pressedKey = '1'; }
+        else if (touchedMap & (1<<K2)){ pressedKey = '2'; }
+        else if (touchedMap & (1<<K3)){ pressedKey = '3'; }
+        /*else if (touchedMap & (1<<K4)){ pressedKey = '4'; }
         else if (touchedMap & (1<<K5)) { pressedKey = '5'; }
         else if (touchedMap & (1<<K6)) { pressedKey = '6'; }
         else if (touchedMap & (1<<K7)) { pressedKey = '7'; }
@@ -332,16 +351,49 @@ void MPR121_Handler(void){
         TimerEnable(TIMER0_BASE, TIMER_A);
     }
     // If one electrode was released
+    //TODO(Rebecca): For button release(s), this needs to be modified to check
+    // if less buttons are pressed than before
     else if (touchNumber == 0) {
-        GPIOPinWrite(GPIO_PORTA_BASE, LED_EXTERNAL_PIN, 0);
-        GPIOPinWrite(GPIO_PORTA_BASE, LED_EXTERNAL_PIN_2, 0);
-        GPIOPinWrite(GPIO_PORTA_BASE, LED_EXTERNAL_PIN_3, 0);
+        // Turn off all LEDs
+        uint8_t i = 0;
+        for(i = 0; i < NUM_OF_LEDS; i++) {
+            setLed(i, false);
+        }
+        // Clear and disable any timers
+        TimerIntClear(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
+        TimerDisable(TIMER0_BASE, TIMER_A);
+
+        TimerIntClear(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
+        TimerDisable(TIMER1_BASE, TIMER_A);
     }
     // Do nothing if more than one button is pressed
     else {}
 
     // Clear the asserted interrupts.
     GPIOIntClear(GPIO_PORTC_BASE, IRQ_PIN);
+}
+
+// Toggle Key Presses
+void toggleKeylock(void)
+{
+    // For debugging purposes
+    uint8_t ledState = GPIOPinRead(GPIO_PORTF_BASE, LED_PINS);
+    ledState ^= RED;
+    GPIOPinWrite(GPIO_PORTF_BASE, LED_PINS, ledState);
+
+    // Turn on all LEDs pressed on touchMap
+    uint8_t i;
+    for(i = 0; i < NUM_OF_LEDS; i++) {
+        if(touchedMap && (1<<i)) {
+            //TODO(Rebecca): What happens if this occurs when flooding other LEDs?
+            setLed(i, true);
+            ledsOn[i] = true;
+        }
+    }
+
+    // Turn on LED flooding timer
+    TimerLoadSet(TIMER1_BASE, TIMER_A, SysCtlClockGet() * 2);
+    TimerEnable(TIMER1_BASE, TIMER_A);
 }
 
 void KeyPress_Handler(void) {
@@ -351,19 +403,54 @@ void KeyPress_Handler(void) {
     // Disable the timer
     TimerDisable(TIMER0_BASE, TIMER_A);
 
-   //TODO(Rebecca): Move this into toggleKeylock() function
    // Get the status of the electrodes
    uint32_t touchedLSB = I2CReceive(0x5A,0x00);
    uint32_t touchedMSB = I2CReceive(0x5A,0x01);
    uint16_t currentTouchedMap = ((touchedMSB << 8) | touchedLSB);
 
+   // Check for debouncing
    _Bool isStillPressed = touchedMap == currentTouchedMap;
-    if (isStillPressed) {
-        toggleKeylock();
+   if (isStillPressed) {
+       toggleKeylock();
+   }
+}
 
-        TimerLoadSet(TIMER1_BASE, TIMER_A, SysCtlClockGet() * 2);
-        TimerEnable(TIMER1_BASE, TIMER_A);
-    }
+// Check which LEDs are currently on, and flood the light to adjacent LEDs
+void flood(void) {
+     // Only flood when there are still LEDs that need to turn on
+     if(!allLedsOn) {
+         _Bool areAllLedsOn = true;
+
+         // Make a copy of the ledsOn pointer
+         uint8_t* presentLedsOn = malloc(sizeof(uint8_t));
+         memcpy(presentLedsOn, ledsOn, sizeof(uint8_t));
+
+         uint8_t i;
+         for(i = 0; i < NUM_OF_LEDS; i++) {
+             if(ledsOn[i] == 0) {
+                 // If at least 1 LED was off before looping
+                 areAllLedsOn = false;
+             } else {
+                 // If an LED is on, turn on adjacent LEDs if not already on
+                 //TODO(Rebecca): Refactor if conditions
+                 if(i > 0 && presentLedsOn[i-1] != true) {
+                     setLed(i-1, true);
+                     presentLedsOn[i-1] = true;
+                 }
+                 if(i < (NUM_OF_LEDS - 1) && presentLedsOn[i+1] != true) {
+                     setLed(i+1, true);
+                     presentLedsOn[i+1] = true;
+                 }
+             }
+         }
+         if (areAllLedsOn) {
+             allLedsOn = true;
+         }
+         // Point ledsOn to new data, and deallocate presentLedsOn
+         //TODO(Rebecca): Ask Tyler if this is correct...
+         ledsOn = presentLedsOn;
+         free(presentLedsOn);
+     }
 }
 
 // If the same capacitor is being pressed, turn on joint LEDs
@@ -374,44 +461,23 @@ void KeyPressFlood_Handler(void) {
     // Disable the timer
     TimerDisable(TIMER1_BASE, TIMER_A);
 
+    // Flood LED light to adjacent LEDs
+    flood();
+
+   // If flooding isn't complete, call the flood handler again
    if(!allLedsOn) {
-       struct LED aLed;
-       switch(pressedKey) {
-       case '1':
-           aLed = leds[1];
-           if(GPIOPinRead(leds[1].GPIO_Port, leds[1].GPIOPin) == 0) {
-               aLed = leds[1];
-               GPIOPinWrite(aLed.GPIO_Port, aLed.GPIOPin, aLed.aLedState);
-
-               TimerLoadSet(TIMER1_BASE, TIMER_A, SysCtlClockGet() * 2);
-               TimerEnable(TIMER1_BASE, TIMER_A);
-
-           } else if(GPIOPinRead(leds[2].GPIO_Port, leds[2].GPIOPin) == 0) {
-               aLed = leds[2];
-               GPIOPinWrite(aLed.GPIO_Port, aLed.GPIOPin, aLed.aLedState);
-               allLedsOn = true;
-           }
-       }
+       TimerLoadSet(TIMER1_BASE, TIMER_A, SysCtlClockGet() * 2);
+       TimerEnable(TIMER1_BASE, TIMER_A);
    }
 
 }
- void initializeLED(struct LED *led, int ledState, int GPIOPin, int GPIOPort) {
-     led->aLedState = ledState;
-     led->GPIOPin = GPIOPin;
-     led->GPIO_Port = GPIOPort;
- }
 
 int main(void) {
-    struct LED led1, led2, led3;
-    initializeLED(&led1, 32, GPIO_PIN_5, GPIO_PORTA_BASE);
-    initializeLED(&led2, 64, GPIO_PIN_6, GPIO_PORTA_BASE);
-    initializeLED(&led3, 128, GPIO_PIN_7, GPIO_PORTA_BASE);
+    // Setup of the LED struct array
+    // Note: This needs to be run first BEFORE setup()
+    initLeds();
 
-    leds = (struct LED*) calloc(3, sizeof(struct LED));
-    leds[0] = led1;
-    leds[1] = led2;
-    leds[2] = led3;
-
+    // Setup peripherals
     setup();
 
     // Timer Init
