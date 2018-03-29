@@ -35,7 +35,7 @@
 #define LED_ON 32
 
 #define LED_PINS GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3
-#define LED_OFFSET_PIN GPIO_PIN_5 // Need to come up with a better name
+#define LED_EXTERNAL_PIN GPIO_PIN_5 // Need to come up with a better name
 #define SCL_PIN GPIO_PIN_2
 #define SDA_PIN GPIO_PIN_3
 #define IRQ_PIN GPIO_PIN_7
@@ -44,7 +44,7 @@
 //TODO(Rebecca): Once functionality is working, remove pressedKey references
 char pressedKey;            // Keypad: store which key was last pressed
 volatile unsigned long ledState = 0;
-volatile unsigned long ledOffsetState = 0;
+volatile unsigned long externalLedState = 0;
 _Bool keysUnlocked = true;   // For locking the keypad
 uint16_t touchedMap;        // Map of key status
 
@@ -72,7 +72,7 @@ void setup(void) {
 
     // Setting LED pins to Output
     GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, LED_PINS);
-    GPIOPinTypeGPIOOutput(GPIO_PORTA_BASE, LED_OFFSET_PIN);
+    GPIOPinTypeGPIOOutput(GPIO_PORTA_BASE, LED_EXTERNAL_PIN);
 }
 
 void I2C_Init(void) {
@@ -266,11 +266,10 @@ void IRQ_Init(void) {
 // Toggle Key Presses
 void toggleKeylock(void)
 {
-    //keysUnlocked ^= keysUnlocked;
     ledState ^= RED;
-    ledOffsetState ^= LED_ON;
+    externalLedState = LED_ON;
     GPIOPinWrite(GPIO_PORTF_BASE, LED_PINS, ledState);
-    GPIOPinWrite(GPIO_PORTA_BASE, LED_OFFSET_PIN, ledOffsetState);
+    GPIOPinWrite(GPIO_PORTA_BASE, LED_EXTERNAL_PIN, externalLedState);
 
 }
 
@@ -312,7 +311,9 @@ void MPR121_Handler(void){
         TimerEnable(TIMER0_BASE, TIMER_A);
     }
     // If one electrode was released
-    else if (touchNumber == 0) {}
+    else if (touchNumber == 0) {
+        GPIOPinWrite(GPIO_PORTA_BASE, LED_EXTERNAL_PIN, 0);
+    }
     // Do nothing if more than one button is pressed
     else {}
 
@@ -320,8 +321,6 @@ void MPR121_Handler(void){
     GPIOIntClear(GPIO_PORTC_BASE, IRQ_PIN);
 }
 
-
-//TODO(Rebecca): NEED TO WRITE HANDLER FOR TOUCH RELEASE!!!!
 void KeyPress_Handler(void) {
     // Clear the timer interrupt.
     TimerIntClear(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
@@ -329,6 +328,7 @@ void KeyPress_Handler(void) {
     // Disable the timer
     TimerDisable(TIMER0_BASE, TIMER_A);
 
+   //TODO(Rebecca): Move this into toggleKeylock() function
    // Get the status of the electrodes
    uint32_t touchedLSB = I2CReceive(0x5A,0x00);
    uint32_t touchedMSB = I2CReceive(0x5A,0x01);
@@ -355,7 +355,7 @@ int main(void) {
    // Start the MPR121 and set thresholds
    MPR121_Init();
 
-   // Ready
+   // Turn on the Blue LED when finish initializing
    GPIOPinWrite(GPIO_PORTF_BASE, LED_PINS, BLUE);
 
    while(1){}
