@@ -37,12 +37,9 @@
 #define RED 2
 #define BLUE 4
 #define GREEN 8
-#define LED_ON 32
 
 #define LED_PINS GPIO_PIN_1 | GPIO_PIN_2 | GPIO_PIN_3
-#define LED_EXTERNAL_PIN GPIO_PIN_5 // Need to come up with a better name
-#define LED_EXTERNAL_PIN_2 GPIO_PIN_6
-#define LED_EXTERNAL_PIN_3 GPIO_PIN_7
+// External LED pins defined in initLeds
 
 #define SCL_PIN GPIO_PIN_2
 #define SDA_PIN GPIO_PIN_3
@@ -78,7 +75,6 @@ struct LED initializeLED(int ledState, int GPIOPin, int GPIOPort) {
      led.aLedState = ledState;
      led.GPIOPin = GPIOPin;
      led.GPIO_Port = GPIOPort;
-
      return led;
 }
 
@@ -88,7 +84,8 @@ void initLeds(void) {
      leds[1] = initializeLED(64, GPIO_PIN_6, GPIO_PORTA_BASE);
      leds[2] = initializeLED(128, GPIO_PIN_7, GPIO_PORTA_BASE);
 
-     // Setup of which LEDs are 'on' (so don't need to check)
+     // Setup of which LEDs are 'on' (so don't need to call GPIOPinRead)
+     // TODO(Rebecca): Is it really so bad if we call GPIOPinRead?
      ledsOn = (uint8_t*) calloc(NUM_OF_LEDS, sizeof(uint8_t));
      uint8_t i;
      for(i = 0; i < NUM_OF_LEDS; i++) {
@@ -469,7 +466,6 @@ void KeyPressFlood_Handler(void) {
        TimerLoadSet(TIMER1_BASE, TIMER_A, SysCtlClockGet() * 2);
        TimerEnable(TIMER1_BASE, TIMER_A);
    }
-
 }
 
 int main(void) {
