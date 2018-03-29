@@ -53,7 +53,7 @@ struct LED {
 
 // Global Variables!
 //TODO(Rebecca): Once functionality is working, remove pressedKey references
-char pressedKey;            // Keypad: store which key was last pressed
+char lastPressedKey;            // Keypad: store which key was last pressed
 _Bool allLedsOn = false;   // For checking LEDs finish flooding
 uint16_t touchedMap;        // Map of key status
 struct LED leds[NUM_OF_LEDS]; // Statically stores the mapping of each port to each external LED
@@ -69,7 +69,6 @@ void MPR121_Handler(void);
 void KeyPress_Handler(void);
 void KeyPressFlood_Handler(void);
 
-//TODO(Rebecca): Ask Tyler for correctness.
 struct LED initializeLED(int ledState, int GPIOPin, int GPIOPort) {
     struct LED led;
      led.aLedState = ledState;
@@ -84,7 +83,6 @@ void initLeds(void) {
      leds[2] = initializeLED(128, GPIO_PIN_7, GPIO_PORTA_BASE);
 
      // Setup of which LEDs are 'on' (so don't need to call GPIOPinRead)
-     // TODO(Rebecca): Is it really so bad if we call GPIOPinRead?
      uint8_t i;
      for(i = 0; i < NUM_OF_LEDS; i++) {
          ledsOn[i] = false;
@@ -313,42 +311,33 @@ void setLed(uint8_t index, _Bool setLedOn) {
 }
 
 void MPR121_Handler(void){
-    int touchNumber = 0;
-    int j;
     uint32_t touchedLSB, touchedMSB;
+    uint16_t lastTouchedMap = touchedMap;
 
     // Get the status of the electrodes
     touchedLSB = I2CReceive(0x5A,0x00);
     touchedMSB = I2CReceive(0x5A,0x01);
     touchedMap = ((touchedMSB << 8) | touchedLSB);
 
-    // Check how many electrodes were pressed
-    for (j=0; j<12; j++) { if ((touchedMap & (1<<j))) { touchNumber++; } }
-    // If one electrode was pressed, register it
-    //TODO(Rebecca): For multiple button presses, this needs to be modified
-    if (touchNumber == 1) {
-        //TODO(Rebecca): Change to show mostRecentKeyPress
-        if (touchedMap & (1<<K1)){ pressedKey = '1'; }
-        else if (touchedMap & (1<<K2)){ pressedKey = '2'; }
-        else if (touchedMap & (1<<K3)){ pressedKey = '3'; }
-        /*else if (touchedMap & (1<<K4)){ pressedKey = '4'; }
-        else if (touchedMap & (1<<K5)) { pressedKey = '5'; }
-        else if (touchedMap & (1<<K6)) { pressedKey = '6'; }
-        else if (touchedMap & (1<<K7)) { pressedKey = '7'; }
-        else if (touchedMap & (1<<K8)) { pressedKey = '8'; }
-        else if (touchedMap & (1<<K9)) { pressedKey = '9'; }
-        else if (touchedMap & (1<<K0)) { pressedKey = '0'; }
-        else if (touchedMap & (1<<KS)) { pressedKey = '*'; }
-        else if (touchedMap & (1<<KP)) {
-            pressedKey = '#';
-        }*/
+    // If multiple button presses increases, turn on debouncing timer
+    if (touchedMap > lastTouchedMap) {
+        if (touchedMap & (1<<K1)){ lastPressedKey = '1'; }
+        else if (touchedMap & (1<<K2)){ lastPressedKey = '2'; }
+        else if (touchedMap & (1<<K3)){ lastPressedKey = '3'; }
+        /*else if (touchedMap & (1<<K4)){ lastPressedKey = '4'; }
+        else if (touchedMap & (1<<K5)) { lastPressedKey = '5'; }
+        else if (touchedMap & (1<<K6)) { lastPressedKey = '6'; }
+        else if (touchedMap & (1<<K7)) { lastPressedKey = '7'; }
+        else if (touchedMap & (1<<K8)) { lastPressedKey = '8'; }
+        else if (touchedMap & (1<<K9)) { lastPressedKey = '9'; }
+        else if (touchedMap & (1<<K0)) { lastPressedKey = 'A'; }
+        else if (touchedMap & (1<<KS)) { lastPressedKey = 'B'; }
+        else if (touchedMap & (1<<KP)) { lastPressedKey = 'C'; }*/
         TimerLoadSet(TIMER0_BASE, TIMER_A, SysCtlClockGet() * 2);
         TimerEnable(TIMER0_BASE, TIMER_A);
     }
-    // If one electrode was released
-    //TODO(Rebecca): For button release(s), this needs to be modified to check
-    // if less buttons are pressed than before
-    else if (touchNumber == 0) {
+    // If less buttons are pressed than before, turn off all LEDs and clear timers
+    else if(touchedMap < lastTouchedMap) {
         // Turn off all LEDs
         uint8_t i = 0;
         for(i = 0; i < NUM_OF_LEDS; i++) {
@@ -362,7 +351,7 @@ void MPR121_Handler(void){
         TimerIntClear(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
         TimerDisable(TIMER1_BASE, TIMER_A);
     }
-    // Do nothing if more than one button is pressed
+    // If touchedMap == lastTouchedMap, do nothing
     else {}
 
     // Clear the asserted interrupts.
@@ -380,7 +369,6 @@ void toggleKeylock(void)
     } else {
         ledState = OFF;
     }
-
     GPIOPinWrite(GPIO_PORTF_BASE, LED_PINS, ledState);
 
     // Turn on all LEDs pressed on touchMap
@@ -388,7 +376,6 @@ void toggleKeylock(void)
     for(i = 0; i < NUM_OF_LEDS; i++) {
         _Bool isButtonPressed = (touchedMap & (1 << i));
         if(isButtonPressed) {
-            //TODO(Rebecca): What happens if this occurs when flooding other LEDs?
             setLed(i, true);
             ledsOn[i] = true;
         }
@@ -430,17 +417,25 @@ void flood(void) {
 
          uint8_t i;
          for(i = 0; i < NUM_OF_LEDS; i++) {
-             if(ledsOn[i] == 0) {
-                 // If at least 1 LED was off before looping
+             if(ledsOn[i] == 0) { // If at least 1 LED was off before looping
                  areAllLedsOn = false;
-             } else {
-                 // If an LED is on, turn on adjacent LEDs if not already on
-                 //TODO(Rebecca): Refactor if conditions
-                 if(i > 0 && presentLedsOn[i-1] != true) {
+             } else { // If an LED is on, turn on adjacent LEDs if not already on
+                 // Turn on left LED when applicable
+                 _Bool notLeftMostLed = i > 0;
+                 _Bool isLeftLedOff = presentLedsOn[i-1] != true;
+                 _Bool canTurnLeftLedOn = notLeftMostLed && isLeftLedOff;
+
+                 if(canTurnLeftLedOn) {
                      setLed(i-1, true);
                      presentLedsOn[i-1] = true;
                  }
-                 if(i < (NUM_OF_LEDS - 1) && presentLedsOn[i+1] != true) {
+
+                 // Turn on right LED when applicable
+                 _Bool notRightMostLed = i < (NUM_OF_LEDS - 1);
+                 _Bool isRightLedOff = presentLedsOn[i+1] != true;
+                 _Bool canTurnRightLedOn = notRightMostLed && isRightLedOff;
+
+                 if(canTurnRightLedOn) {
                      setLed(i+1, true);
                      presentLedsOn[i+1] = true;
                  }
