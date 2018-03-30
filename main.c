@@ -459,6 +459,16 @@ void flood(void) {
          }
          // Set ledsOn to presentLedsOn
          memcpy(ledsOn, presentLedsOn, sizeof(ledsOn));
+     } else { //If all LEDs are turned on, pulse the lights
+         _Bool state = TRUE;
+         if(ledsOn[0] == TRUE) {
+             state = FALSE;
+         }
+         uint8_t i;
+         for(i = 0; i < NUM_OF_LEDS; i++) {
+             setLed(i, state);
+             ledsOn[i] = state;
+         }
      }
 }
 
@@ -473,11 +483,8 @@ void KeyPressFlood_Handler(void) {
     // Flood LED light to adjacent LEDs
     flood();
 
-   // If flooding isn't complete, call the flood handler again
-   if(!allLedsOn) {
-       TimerLoadSet(TIMER1_BASE, TIMER_A, SysCtlClockGet() * 2);
-       TimerEnable(TIMER1_BASE, TIMER_A);
-   }
+   TimerLoadSet(TIMER1_BASE, TIMER_A, SysCtlClockGet() * 2);
+   TimerEnable(TIMER1_BASE, TIMER_A);
 }
 
 int main(void) {
