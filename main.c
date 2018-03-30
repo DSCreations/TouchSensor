@@ -13,25 +13,25 @@
 #include "driverlib/gpio.h"
 #include "driverlib/pin_map.h"
 
-#define true 1
-#define false 0
+#define TRUE 1
+#define FALSE 0
 
 #define K1 0                // Electrode 0 is the 1 key,
 #define K2 1                // Electrode 1 is the 2 key, etc...
 #define K3 2
-/*#define K4 9
-#define K5 5
-#define K6 2
-#define K7 10
-#define K8 6
-#define K9 1
-#define K0 7
-#define KS 11               // * (star)
-#define KP 0                // # (pound or hash)*/
+#define K4 3
+#define K5 4
+#define K6 5
+#define K7 6
+#define K8 7
+#define K9 8
+#define K10 9
+#define K11 10
+#define K12 11
 #define TOUCH_THRESH 0x0F     // touch threshold
 #define RELEASE_THRESH 0x09     // release threshold
 
-#define NUM_OF_LEDS 3
+#define NUM_OF_LEDS 12
 
 #define OFF 0
 #define RED 2
@@ -45,6 +45,10 @@
 #define SDA_PIN GPIO_PIN_3
 #define IRQ_PIN GPIO_PIN_7
 
+//TODO(Rebecca): Write Power Button Functionality
+#define POWER_SW_PIN GPIO_PIN_0
+#define POWER_LED_PIN GPIO_PIN_1
+
 struct LED {
     unsigned long aLedState;
     unsigned GPIOPin;
@@ -54,7 +58,7 @@ struct LED {
 // Global Variables!
 //TODO(Rebecca): Once functionality is working, remove pressedKey references
 char lastPressedKey;            // Keypad: store which key was last pressed
-_Bool allLedsOn = false;   // For checking LEDs finish flooding
+_Bool allLedsOn = FALSE;   // For checking LEDs finish flooding
 uint16_t touchedMap;        // Map of key status
 struct LED leds[NUM_OF_LEDS]; // Statically stores the mapping of each port to each external LED
 uint8_t ledsOn[NUM_OF_LEDS]; // Stores which LEDs are on (1 for on, 0 for off)
@@ -78,14 +82,23 @@ struct LED initializeLED(int ledState, int GPIOPin, int GPIOPort) {
 }
 
 void initLeds(void) {
-     leds[0] = initializeLED(32, GPIO_PIN_5, GPIO_PORTA_BASE);
-     leds[1] = initializeLED(64, GPIO_PIN_6, GPIO_PORTA_BASE);
-     leds[2] = initializeLED(128, GPIO_PIN_7, GPIO_PORTA_BASE);
+     leds[0] = initializeLED(1, GPIO_PIN_0, GPIO_PORTB_BASE);
+     leds[1] = initializeLED(2, GPIO_PIN_1, GPIO_PORTB_BASE);
+     leds[2] = initializeLED(16, GPIO_PIN_4, GPIO_PORTB_BASE);
+     leds[3] = initializeLED(32, GPIO_PIN_5, GPIO_PORTB_BASE);
+     leds[4] = initializeLED(64, GPIO_PIN_6, GPIO_PORTB_BASE);
+     leds[5] = initializeLED(128, GPIO_PIN_7, GPIO_PORTB_BASE);
+     leds[6] = initializeLED(1, GPIO_PIN_0, GPIO_PORTE_BASE);
+     leds[7] = initializeLED(2, GPIO_PIN_1, GPIO_PORTE_BASE);
+     leds[8] = initializeLED(4, GPIO_PIN_2, GPIO_PORTE_BASE);
+     leds[9] = initializeLED(8, GPIO_PIN_3, GPIO_PORTE_BASE);
+     leds[10] = initializeLED(16, GPIO_PIN_4, GPIO_PORTE_BASE);
+     leds[11] = initializeLED(32, GPIO_PIN_5, GPIO_PORTE_BASE);
 
      // Setup of which LEDs are 'on' (so don't need to call GPIOPinRead)
      uint8_t i;
      for(i = 0; i < NUM_OF_LEDS; i++) {
-         ledsOn[i] = false;
+         ledsOn[i] = FALSE;
      }
 }
 
@@ -97,10 +110,10 @@ void setup(void) {
     SysCtlClockSet(SYSCTL_SYSDIV_1 | SYSCTL_USE_OSC | SYSCTL_OSC_MAIN | SYSCTL_XTAL_16MHZ);
 
     // Enable system peripherals
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOA);    // Personal LEDs
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOB);    // Pins: I2C0SCL, I2C0SDA
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOE);    // Personal LEDs
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOB);    // Pins: I2C0SCL, I2C0SDA, Personal LEDs
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOC);    // Pins: Keypad interrupt (INT2)
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);    // LEDs on Microcontroller
 
     // Setting LED pins to Output
     GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, LED_PINS);
@@ -131,9 +144,9 @@ void I2C_Init(void) {
 
     // Enable and initialize the I2C0 master module.  Use the system clock for
     // the I2C0 module.  The last parameter sets the I2C data transfer rate.
-    // If false the data rate is set to 100kbps and if true the data rate will
+    // If FALSE the data rate is set to 100kbps and if TRUE the data rate will
     // be set to 400kbps.
-    I2CMasterInitExpClk(I2C0_BASE, SysCtlClockGet(), false);
+    I2CMasterInitExpClk(I2C0_BASE, SysCtlClockGet(), FALSE);
 
     // Clear I2C FIFOs
     HWREG(I2C0_BASE + I2C_O_FIFOCTL) = 80008000;
@@ -144,7 +157,7 @@ void I2CSend(uint8_t slave_addr, uint8_t num_of_args, ...)
 {
     // Tell the master module what address it will place on the bus when
     // communicating with the slave.
-    I2CMasterSlaveAddrSet(I2C0_BASE, slave_addr, false);
+    I2CMasterSlaveAddrSet(I2C0_BASE, slave_addr, FALSE);
 
     // Stores list of variable number of arguments
     va_list vargs;
@@ -210,7 +223,7 @@ uint32_t I2CReceive(uint32_t slave_addr, uint8_t reg)
 {
     // Specify that we are writing (a register address) to the
     // slave device
-    I2CMasterSlaveAddrSet(I2C0_BASE, slave_addr, false);
+    I2CMasterSlaveAddrSet(I2C0_BASE, slave_addr, FALSE);
 
     // Specify register to be read
     I2CMasterDataPut(I2C0_BASE, reg);
@@ -222,7 +235,7 @@ uint32_t I2CReceive(uint32_t slave_addr, uint8_t reg)
     while(I2CMasterBusy(I2C0_BASE));
 
     // Specify that we are going to read from slave device
-    I2CMasterSlaveAddrSet(I2C0_BASE, slave_addr, true);
+    I2CMasterSlaveAddrSet(I2C0_BASE, slave_addr, TRUE);
 
     // Send control byte and read from the register we
     // specified
@@ -299,7 +312,7 @@ void IRQ_Init(void) {
     GPIOIntDisable(GPIO_PORTC_BASE, IRQ_PIN);                    // Disable interrupt for PC7
     GPIOIntClear(GPIO_PORTC_BASE, IRQ_PIN);                      // Clear pending interrupts for PC7
     GPIOIntRegister(GPIO_PORTC_BASE, MPR121_Handler);             // Register port C interrupt handler
-    GPIOIntTypeSet(GPIO_PORTC_BASE, IRQ_PIN, GPIO_LOW_LEVEL);    // Configure PC7 for falling edge
+    GPIOIntTypeSet(GPIO_PORTC_BASE, IRQ_PIN, GPIO_LOW_LEVEL);    // Configure PC for falling edge
     GPIOIntEnable(GPIO_PORTC_BASE, IRQ_PIN);                     // Enable interrupt
 }
 
@@ -324,15 +337,15 @@ void MPR121_Handler(void){
         if (touchedMap & (1<<K1)){ lastPressedKey = '1'; }
         else if (touchedMap & (1<<K2)){ lastPressedKey = '2'; }
         else if (touchedMap & (1<<K3)){ lastPressedKey = '3'; }
-        /*else if (touchedMap & (1<<K4)){ lastPressedKey = '4'; }
+        else if (touchedMap & (1<<K4)){ lastPressedKey = '4'; }
         else if (touchedMap & (1<<K5)) { lastPressedKey = '5'; }
         else if (touchedMap & (1<<K6)) { lastPressedKey = '6'; }
         else if (touchedMap & (1<<K7)) { lastPressedKey = '7'; }
         else if (touchedMap & (1<<K8)) { lastPressedKey = '8'; }
         else if (touchedMap & (1<<K9)) { lastPressedKey = '9'; }
-        else if (touchedMap & (1<<K0)) { lastPressedKey = 'A'; }
-        else if (touchedMap & (1<<KS)) { lastPressedKey = 'B'; }
-        else if (touchedMap & (1<<KP)) { lastPressedKey = 'C'; }*/
+        else if (touchedMap & (1<<K10)) { lastPressedKey = 'A'; }
+        else if (touchedMap & (1<<K11)) { lastPressedKey = 'B'; }
+        else if (touchedMap & (1<<K12)) { lastPressedKey = 'C'; }
         TimerLoadSet(TIMER0_BASE, TIMER_A, SysCtlClockGet() * 2);
         TimerEnable(TIMER0_BASE, TIMER_A);
     }
@@ -341,8 +354,8 @@ void MPR121_Handler(void){
         // Turn off all LEDs
         uint8_t i = 0;
         for(i = 0; i < NUM_OF_LEDS; i++) {
-            setLed(i, false);
-            ledsOn[i] = false;
+            setLed(i, FALSE);
+            ledsOn[i] = FALSE;
         }
         // Clear and disable any timers
         TimerIntClear(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
@@ -355,7 +368,7 @@ void MPR121_Handler(void){
     else {}
 
     // Clear the asserted interrupts.
-    GPIOIntClear(GPIO_PORTC_BASE, IRQ_PIN);
+    GPIOIntClear(GPIO_PORTB_BASE, IRQ_PIN);
 }
 
 // Toggle Key Presses
@@ -374,10 +387,10 @@ void toggleKeylock(void)
     // Turn on all LEDs pressed on touchMap
     uint8_t i;
     for(i = 0; i < NUM_OF_LEDS; i++) {
-        _Bool isButtonPressed = (touchedMap & (1 << i));
+        _Bool isButtonPressed = (touchedMap & (1<<i));
         if(isButtonPressed) {
-            setLed(i, true);
-            ledsOn[i] = true;
+            setLed(i, TRUE);
+            ledsOn[i] = TRUE;
         }
     }
 
@@ -409,7 +422,7 @@ void KeyPress_Handler(void) {
 void flood(void) {
      // Only flood when there are still LEDs that need to turn on
      if(!allLedsOn) {
-         _Bool areAllLedsOn = true;
+         _Bool areAllLedsOn = TRUE;
 
          // Make a copy of the ledsOn array
          uint8_t presentLedsOn [NUM_OF_LEDS];
@@ -418,31 +431,31 @@ void flood(void) {
          uint8_t i;
          for(i = 0; i < NUM_OF_LEDS; i++) {
              if(ledsOn[i] == 0) { // If at least 1 LED was off before looping
-                 areAllLedsOn = false;
+                 areAllLedsOn = FALSE;
              } else { // If an LED is on, turn on adjacent LEDs if not already on
                  // Turn on left LED when applicable
                  _Bool notLeftMostLed = i > 0;
-                 _Bool isLeftLedOff = presentLedsOn[i-1] != true;
+                 _Bool isLeftLedOff = presentLedsOn[i-1] != TRUE;
                  _Bool canTurnLeftLedOn = notLeftMostLed && isLeftLedOff;
 
                  if(canTurnLeftLedOn) {
-                     setLed(i-1, true);
-                     presentLedsOn[i-1] = true;
+                     setLed(i-1, TRUE);
+                     presentLedsOn[i-1] = TRUE;
                  }
 
                  // Turn on right LED when applicable
                  _Bool notRightMostLed = i < (NUM_OF_LEDS - 1);
-                 _Bool isRightLedOff = presentLedsOn[i+1] != true;
+                 _Bool isRightLedOff = presentLedsOn[i+1] != TRUE;
                  _Bool canTurnRightLedOn = notRightMostLed && isRightLedOff;
 
                  if(canTurnRightLedOn) {
-                     setLed(i+1, true);
-                     presentLedsOn[i+1] = true;
+                     setLed(i+1, TRUE);
+                     presentLedsOn[i+1] = TRUE;
                  }
              }
          }
          if (areAllLedsOn) {
-             allLedsOn = true;
+             allLedsOn = TRUE;
          }
          // Set ledsOn to presentLedsOn
          memcpy(ledsOn, presentLedsOn, sizeof(ledsOn));
