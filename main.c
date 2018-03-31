@@ -46,8 +46,12 @@
 #define IRQ_PIN GPIO_PIN_7
 
 //TODO(Rebecca): Write Power Button Functionality
-#define POWER_SW_PIN GPIO_PIN_0
-#define POWER_LED_PIN GPIO_PIN_1
+#define POWER_SW_PIN GPIO_PIN_2
+#define POWER_LED_PIN GPIO_PIN_3
+#define POWER_LED 8
+
+#define DEBOUNCE_DELAY 10
+#define POWER_BUTTON_NOT_PRESSED 4
 
 struct LED {
     unsigned long aLedState;
@@ -59,6 +63,7 @@ struct LED {
 //TODO(Rebecca): Once functionality is working, remove pressedKey references
 char lastPressedKey;            // Keypad: store which key was last pressed
 _Bool allLedsOn = FALSE;   // For checking LEDs finish flooding
+_Bool powerButtonOn = TRUE; // Power Button Flag
 uint16_t touchedMap;        // Map of key status
 struct LED leds[NUM_OF_LEDS]; // Statically stores the mapping of each port to each external LED
 uint8_t ledsOn[NUM_OF_LEDS]; // Stores which LEDs are on (1 for on, 0 for off)
@@ -69,6 +74,8 @@ void MPR121_Init(void);
 void Timer_Init(void);
 void IRQ_Init(void);
 void toggleKeylock(void);
+void Power_Handler(void);
+void PowerPress_Handler(void);
 void MPR121_Handler(void);
 void KeyPress_Handler(void);
 void KeyPressFlood_Handler(void);
@@ -110,18 +117,31 @@ void setup(void) {
     SysCtlClockSet(SYSCTL_SYSDIV_1 | SYSCTL_USE_OSC | SYSCTL_OSC_MAIN | SYSCTL_XTAL_16MHZ);
 
     // Enable system peripherals
-    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOE);    // Personal LEDs
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOA);    // Power Button
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOB);    // Pins: I2C0SCL, I2C0SDA, Personal LEDs
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOC);    // Pins: Keypad interrupt (INT2)
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOE);    // Personal LEDs
     SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOF);    // LEDs on Microcontroller
 
     // Setting LED pins to Output
-    GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, LED_PINS);
+    GPIOPinTypeGPIOOutput(GPIO_PORTA_BASE, POWER_LED_PIN); // Power Button LED
+    GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, LED_PINS); // Microncontroller LEDs
     uint8_t i;
     for(i = 0; i < NUM_OF_LEDS; i++) {
         struct LED led = leds[i];
-        GPIOPinTypeGPIOOutput(led.GPIO_Port, led.GPIOPin);
+        GPIOPinTypeGPIOOutput(led.GPIO_Port, led.GPIOPin); // External LEDs
     }
+
+    // Setup Power Button Switch
+    GPIODirModeSet(GPIO_PORTA_BASE, POWER_SW_PIN , GPIO_DIR_MODE_IN);
+
+    // Register, configure and enable the Button Interrupt handler
+    GPIOIntRegister(GPIO_PORTA_BASE, Power_Handler);
+    GPIOIntTypeSet(GPIO_PORTA_BASE, POWER_SW_PIN, GPIO_FALLING_EDGE);
+    GPIOIntEnable(GPIO_PORTA_BASE,  POWER_SW_PIN);
+
+    // Enable internal pull up resistors
+    GPIOPadConfigSet(GPIO_PORTA_BASE, POWER_SW_PIN , GPIO_STRENGTH_2MA, GPIO_PIN_TYPE_STD_WPU);
 }
 
 void I2C_Init(void) {
@@ -293,17 +313,21 @@ void MPR121_Init(void) {
 void Timer_Init(void) {
     SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER0);           // Timer for key debouncing
     SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER1);
+    SysCtlPeripheralEnable(SYSCTL_PERIPH_TIMER2);
 
     // Set up the timers used to lock/unlock the keypad
     TimerConfigure(TIMER0_BASE, TIMER_CFG_ONE_SHOT);
     TimerConfigure(TIMER1_BASE, TIMER_CFG_ONE_SHOT);
+    TimerConfigure(TIMER2_BASE, TIMER_CFG_ONE_SHOT);
 
     // Setup the interrupts for the timer timeouts
     IntEnable(INT_TIMER0A);
     IntEnable(INT_TIMER1A);
+    IntEnable(INT_TIMER2A);
 
     TimerIntEnable(TIMER0_BASE, TIMER_TIMA_TIMEOUT);
     TimerIntEnable(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
+    TimerIntEnable(TIMER2_BASE, TIMER_TIMA_TIMEOUT);
 }
 
 void IRQ_Init(void) {
@@ -316,11 +340,54 @@ void IRQ_Init(void) {
     GPIOIntEnable(GPIO_PORTC_BASE, IRQ_PIN);                     // Enable interrupt
 }
 
+/* Interrupt GPIO_PORTA when power button pressed */
+void Power_Handler(void) {
+    // Clear interrupt flag
+    GPIOIntClear(GPIO_PORTA_BASE, POWER_SW_PIN);
+
+    // Check that portA isn't in default state ie. button is pushed.
+    int buttonValue = GPIOPinRead(GPIO_PORTA_BASE, POWER_SW_PIN);
+   _Bool wasAButtonPressed = (buttonValue != POWER_BUTTON_NOT_PRESSED);
+   if(wasAButtonPressed) {
+       // Reload and enable the debounce timer
+       TimerLoadSet(TIMER2_BASE, TIMER_A, 10);
+       TimerEnable(TIMER2_BASE, TIMER_A);
+   }
+}
+
+void setPowerButton() {
+    uint8_t ledState = (powerButtonOn) ? OFF: POWER_LED;
+    GPIOPinWrite(GPIO_PORTA_BASE, POWER_LED_PIN, ledState);
+    /*if(powerButtonOn) {
+        SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOB);
+        SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOC);
+    } else {
+        SysCtlPeripheralDisable(SYSCTL_PERIPH_GPIOB);
+        SysCtlPeripheralDisable(SYSCTL_PERIPH_GPIOC);
+    }*/
+    powerButtonOn = (powerButtonOn) ? FALSE: TRUE;
+}
+
+/* Interrupt for handling power button debounce */
+void PowerPress_Handler(void) {
+    // Clear Timer Interrupt Flag
+    TimerIntClear(TIMER2_BASE, TIMER_TIMA_TIMEOUT);
+    TimerDisable(TIMER2_BASE, TIMER_A);
+
+    // Check if the button is still pressed
+    _Bool wasAButtonPressed = (GPIOPinRead(GPIO_PORTA_BASE, POWER_SW_PIN) != POWER_BUTTON_NOT_PRESSED);
+    if(wasAButtonPressed) {
+        setPowerButton();
+    }
+}
+
 // Turn on/off LED
 void setLed(uint8_t index, _Bool setLedOn) {
+    if(powerButtonOn) {
     struct LED aLed = leds[index];
     uint8_t ledState = setLedOn ? aLed.aLedState: 0;
     GPIOPinWrite(aLed.GPIO_Port, aLed.GPIOPin, ledState);
+    }
 }
 
 void MPR121_Handler(void){
@@ -507,8 +574,9 @@ int main(void) {
    // Start the MPR121 and set thresholds
    MPR121_Init();
 
-   // Turn on the Blue LED when finish initializing
+   // Turn on the Micro Controller Blue LED & Power Button LED when finish initializing
    GPIOPinWrite(GPIO_PORTF_BASE, LED_PINS, BLUE);
+   GPIOPinWrite(GPIO_PORTA_BASE, POWER_LED_PIN, POWER_LED);
 
    while(1){}
 }

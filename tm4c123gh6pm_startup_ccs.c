@@ -55,6 +55,8 @@ extern uint32_t __STACK_TOP;
 //
 //*****************************************************************************
 // To be added by user
+extern void Power_Handler(void);
+extern void PowerPress_Handler(void);
 extern void MPR121_Handler(void);
 extern void KeyPress_Handler(void);
 extern void KeyPressFlood_Handler(void);
@@ -86,7 +88,7 @@ void (* const g_pfnVectors[])(void) =
     0,                                      // Reserved
     IntDefaultHandler,                      // The PendSV handler
     IntDefaultHandler,                      // The SysTick handler
-    IntDefaultHandler,                      // GPIO Port A
+    Power_Handler,                      // GPIO Port A
     IntDefaultHandler,                      // GPIO Port B
     MPR121_Handler,                      // GPIO Port C
     IntDefaultHandler,                      // GPIO Port D
@@ -109,7 +111,7 @@ void (* const g_pfnVectors[])(void) =
     IntDefaultHandler,                      // Timer 0 subtimer B
     KeyPressFlood_Handler,                      // Timer 1 subtimer A
     IntDefaultHandler,                      // Timer 1 subtimer B
-    IntDefaultHandler,                      // Timer 2 subtimer A
+    PowerPress_Handler,                      // Timer 2 subtimer A
     IntDefaultHandler,                      // Timer 2 subtimer B
     IntDefaultHandler,                      // Analog Comparator 0
     IntDefaultHandler,                      // Analog Comparator 1
