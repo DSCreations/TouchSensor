@@ -358,13 +358,6 @@ void Power_Handler(void) {
 void setPowerButton() {
     uint8_t ledState = (powerButtonOn) ? OFF: POWER_LED;
     GPIOPinWrite(GPIO_PORTA_BASE, POWER_LED_PIN, ledState);
-    /*if(powerButtonOn) {
-        SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOB);
-        SysCtlPeripheralEnable(SYSCTL_PERIPH_GPIOC);
-    } else {
-        SysCtlPeripheralDisable(SYSCTL_PERIPH_GPIOB);
-        SysCtlPeripheralDisable(SYSCTL_PERIPH_GPIOC);
-    }*/
     powerButtonOn = (powerButtonOn) ? FALSE: TRUE;
 }
 
