@@ -125,7 +125,7 @@ void setup(void) {
 
     // Setting LED pins to Output
     GPIOPinTypeGPIOOutput(GPIO_PORTA_BASE, POWER_LED_PIN); // Power Button LED
-    GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, LED_PINS); // Microncontroller LEDs
+    GPIOPinTypeGPIOOutput(GPIO_PORTF_BASE, LED_PINS); // Microcontroller LEDs
     uint8_t i;
     for(i = 0; i < NUM_OF_LEDS; i++) {
         struct LED led = leds[i];
@@ -377,9 +377,9 @@ void PowerPress_Handler(void) {
 // Turn on/off LED
 void setLed(uint8_t index, _Bool setLedOn) {
     if(powerButtonOn) {
-    struct LED aLed = leds[index];
-    uint8_t ledState = setLedOn ? aLed.aLedState: 0;
-    GPIOPinWrite(aLed.GPIO_Port, aLed.GPIOPin, ledState);
+        struct LED aLed = leds[index];
+        uint8_t ledState = setLedOn ? aLed.aLedState: 0;
+        GPIOPinWrite(aLed.GPIO_Port, aLed.GPIOPin, ledState);
     }
 }
 
@@ -406,7 +406,7 @@ void MPR121_Handler(void){
         else if (touchedMap & (1<<K10)) { lastPressedKey = 'A'; }
         else if (touchedMap & (1<<K11)) { lastPressedKey = 'B'; }
         else if (touchedMap & (1<<K12)) { lastPressedKey = 'C'; }
-        TimerLoadSet(TIMER0_BASE, TIMER_A, SysCtlClockGet() * 2);
+        TimerLoadSet(TIMER0_BASE, TIMER_A, SysCtlClockGet() * 0.5);
         TimerEnable(TIMER0_BASE, TIMER_A);
     }
     // If less buttons are pressed than before, turn off all LEDs and clear timers
@@ -423,6 +423,8 @@ void MPR121_Handler(void){
 
         TimerIntClear(TIMER1_BASE, TIMER_TIMA_TIMEOUT);
         TimerDisable(TIMER1_BASE, TIMER_A);
+
+        allLedsOn = FALSE;
     }
     // If touchedMap == lastTouchedMap, do nothing
     else {}
@@ -455,7 +457,7 @@ void toggleKeylock(void)
     }
 
     // Turn on LED flooding timer
-    TimerLoadSet(TIMER1_BASE, TIMER_A, SysCtlClockGet() * 2);
+    TimerLoadSet(TIMER1_BASE, TIMER_A, SysCtlClockGet() * 0.5);
     TimerEnable(TIMER1_BASE, TIMER_A);
 }
 
@@ -543,7 +545,7 @@ void KeyPressFlood_Handler(void) {
     // Flood LED light to adjacent LEDs
     flood();
 
-   TimerLoadSet(TIMER1_BASE, TIMER_A, SysCtlClockGet() * 2);
+   TimerLoadSet(TIMER1_BASE, TIMER_A, SysCtlClockGet() * 0.5);
    TimerEnable(TIMER1_BASE, TIMER_A);
 }
 
